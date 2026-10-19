@@ -5,3 +5,6 @@ Stütze wählen (Link-Anker `#17`, `#15`, `#13`, `#g12`), Seite des Stützenfuß
 „In AR ausrichten“, linke und rechte untere Ecke antippen, dann fein nachstellen.
 
 Veröffentlichung über GitHub Pages (*Settings → Pages → Source: GitHub Actions*).
+
+`ansicht.html`: normale Ansicht mit allen Maßstäben zum Testen neuer Funktionen
+(zurzeit: Schalter „Fertigteilträger“, Link-Anker `#ft`).
