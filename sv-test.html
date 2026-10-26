@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Scene-Viewer-Test</title>
+<style>
+:root{--paper:#f3f4f0;--ink:#1c2a2e;--muted:#5a6869;--accent:#1f5ca3;--line:#c8cfc6}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--paper:#12181b;--ink:#e2e8e4;--muted:#8e9c9b;--accent:#78aef0;--line:#2b373b}}
+:root[data-theme="dark"]{--paper:#12181b;--ink:#e2e8e4;--muted:#8e9c9b;--accent:#78aef0;--line:#2b373b}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.45 system-ui,sans-serif}
+main{max-width:640px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:22px;margin:0 0 6px}
+p{color:var(--muted);margin:6px 0 14px}
+a.btn{display:block;margin:10px 0;padding:14px 16px;border:1px solid var(--line);border-radius:8px;color:var(--ink);text-decoration:none;font-weight:600}
+a.btn small{display:block;font-weight:400;color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+<h1>Scene-Viewer-Test</h1>
+<p>Jeder Knopf öffnet die Google-App (Scene Viewer) direkt, ohne die Hauptseite. Bitte nacheinander antippen und notieren, bei welchem sich die Google-App schließt.</p>
+<a class="btn" id="b1">1 · Astronaut von Google<small>fremdes Testmodell</small></a>
+<a class="btn" id="b2">2 · Unterzug 1:10<small>unser Modell, ohne Fertigteilträger</small></a>
+<a class="btn" id="b3">3 · Unterzug 1:10 mit Fertigteilträgern</a>
+<a class="btn" id="b4">4 · Unterzug 1:10, einfacher Aufruf<small>ohne Zusatzeinstellungen</small></a>
+<p id="info"></p>
+</main>
+<script>
+// Scene Viewer per Android-Intent; Fallback zurück auf diese Seite
+const page = location.href.split('#')[0];
+const intent = (file, extra) => {
+  const q = new URLSearchParams(Object.assign({ mode: 'ar_preferred' }, extra));
+  return `intent://arvr.google.com/scene-viewer/1.2?${q}&file=${encodeURIComponent(file)}#Intent;scheme=https;package=com.google.android.googlequicksearchbox;action=android.intent.action.VIEW;S.browser_fallback_url=${encodeURIComponent(page + '#fehlt')};end;`;
+};
+const abs = p => new URL(p, page).toString();
+fetch('models/varianten.json').then(r => r.json()).then(d => {
+  const m = d.varianten.find(v => v.id === 'unterzug-441-m10');
+  const fest = { resizable: 'false', disable_occlusion: 'true', title: 'Unterzug Pos. 441' };
+  document.getElementById('b1').href = intent('https://modelviewer.dev/shared-assets/models/Astronaut.glb', {});
+  document.getElementById('b2').href = intent(abs('models/' + m.glb + '?v=' + m.glbV), fest);
+  document.getElementById('b3').href = intent(abs('models/' + m.glbFt + '?v=' + m.glbFtV), fest);
+  document.getElementById('b4').href = intent(abs('models/' + m.glb), {});
+});
+if (location.hash === '#fehlt') document.getElementById('info').textContent = 'Die Google-App (Scene Viewer) ist auf diesem Gerät nicht verfügbar.';
+</script>
+</body>
+</html>
