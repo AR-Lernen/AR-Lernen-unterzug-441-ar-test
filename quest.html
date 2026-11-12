@@ -77,6 +77,8 @@ a{color:var(--accent)}
       <li>Mit dem Strahl des Controllers (oder der Hand) auf den Boden zeigen, dorthin, wo die <b>Mitte der Bezugsstütze</b> stehen soll. Abzug drücken (Hand: Daumen und Zeigefinger zusammen).</li>
       <li>Der Träger erscheint und dreht sich mit dem Strahl. In die gewünschte Richtung zeigen, nochmal Abzug.</li>
       <li>Feinjustieren: linker Stick verschiebt, rechter Stick dreht. Oder die Knöpfe im Menü benutzen.</li>
+      <li>„Träger fixieren“ hält den Träger fest, dann bewegen ihn weder Sticks noch Hand.</li>
+      <li>Auf einen Stab zeigen und Abzug drücken: Position mit Biegeform, Stückzahl, Ø und Länge erscheint links neben dem Menü. „✕ Schließen“ stellt die normale Ansicht wieder her.</li>
       <li>Das Menü folgt dir beim Gehen. Seitentaste (Griff) holt es sofort vor dich.</li>
     </ol>
     <p class="note">Für das Publikum: Bild der Brille über Meta Casting auf Handy, Laptop oder Beamer spiegeln.</p>
@@ -135,12 +137,13 @@ function loadModel() {
   loader.load( 'models/' + file, g => { if ( modelFile !== file ) return; if ( model ) holder.remove( model );
     model = g.scene; model.traverse( o => { if ( o.isMesh && o.material?.transparent ) o.material.depthWrite = false; } );
     if ( umfang === 'ganz' ) model.add( footprints() );
-    holder.add( model ); setBeton( beton ); setFertig( fertig ); placeModel(); $( 'load' ).hidden = true; xrStatus(); },
+    holder.add( model ); setBeton( beton ); setFertig( fertig ); placeModel(); indexStahl(); closePos(); $( 'load' ).hidden = true; xrStatus(); },
     undefined, () => { $( 'load' ).textContent = 'Modell konnte nicht geladen werden.'; } );
 }
 // Ganzer Träger: Datei für alle Stützen, so verschoben, dass die Bezugsstütze im Ursprung steht. Ausschnitt: Ursprung schon am Stützenfuß.
 function placeModel() { if ( !model ) return;
   const ganz = umfang === 'ganz'; model.position.x = ganz ? - axFull( cur ) : 0;
+  indexStahl();   // Auswahlhüllen der Stäbe an die neue Lage anpassen
   if ( renderer.xr.isPresenting ) return;
   controls.target.set( 0, ganz ? 1.6 : 2.2, 0 );
   const k = Math.max( 1, 1.3 / camera.aspect );
@@ -162,7 +165,7 @@ fetch( 'models/varianten.json' ).then( r => r.json() ).then( d => {
 
 /* ---------- Zustand in AR ---------- */
 const xr = { session: null };
-let state = 'start', menuPinned = false, menuSnap = false;
+let state = 'start', menuPinned = false, menuSnap = false, fixiert = false;
 const pl = { pos: new THREE.Vector3(), yaw: 0, dy: 0 };   // Lage der Bezugsstütze am Boden, Drehung der Trägerachse, Höhenkorrektur
 
 /* ---------- 3D-Menü (Canvas-Texturen) ---------- */
@@ -194,18 +197,20 @@ const placed = () => state === 'fertig';
 addBtn( 0, 0, 'Beton', () => setBeton( !beton ), () => beton );
 addBtn( 1, 0, 'Fertigteile', () => setFertig( !fertig ), () => fertig );
 addBtn( 2, 0, () => umfang === 'ganz' ? 'Ganzer Träger' : 'Ausschnitt', () => setUmfang( umfang === 'ganz' ? 'aus' : 'ganz' ) );
-addBtn( 0, 1, '↺ 1°', () => turn( 1 ), null, () => !placed() );
-addBtn( 1, 1, '↻ 1°', () => turn( - 1 ), null, () => !placed() );
-addBtn( 2, 1, 'Umdrehen 180°', () => turn( 180 ), null, () => !placed() );
-addBtn( 0, 2, 'Höhe −1 cm', () => { pl.dy -= 0.01; applyPlacement(); xrStatus(); }, null, () => !placed() );
-addBtn( 1, 2, 'Höhe +1 cm', () => { pl.dy += 0.01; applyPlacement(); xrStatus(); }, null, () => !placed() );
+const beweglich = () => placed() && !fixiert;
+addBtn( 0, 1, '↺ 1°', () => turn( 1 ), null, () => !beweglich() );
+addBtn( 1, 1, '↻ 1°', () => turn( - 1 ), null, () => !beweglich() );
+addBtn( 2, 1, 'Umdrehen 180°', () => turn( 180 ), null, () => !beweglich() );
+addBtn( 0, 2, 'Höhe −1 cm', () => { pl.dy -= 0.01; applyPlacement(); xrStatus(); }, null, () => !beweglich() );
+addBtn( 1, 2, 'Höhe +1 cm', () => { pl.dy += 0.01; applyPlacement(); xrStatus(); }, null, () => !beweglich() );
 addBtn( 2, 2, () => {
   if ( state !== 'start' ) return 'Neu platzieren';
   const i = V.indexOf( cur ); return 'Stütze ' + ( V[ ( i + 1 ) % V.length ]?.vorOrt.stuetze ?? '' ) + ' →'; }, () => {
   if ( state !== 'start' ) { startPlacing(); return; }
-  select( V[ ( V.indexOf( cur ) + 1 ) % V.length ] ); } );
+  select( V[ ( V.indexOf( cur ) + 1 ) % V.length ] ); }, null, () => fixiert );
 addBtn( 2, 3, 'Beenden', () => xr.session?.end() );
-addBtn( 0, 3, 'Menü fixieren', () => { menuPinned = !menuPinned; }, () => menuPinned );
+addBtn( 0, 3, () => fixiert ? 'Träger fixiert' : 'Träger fixieren', () => { fixiert = !fixiert; }, () => fixiert, () => !placed() );
+addBtn( 1, 3, 'Menü fixieren', () => { menuPinned = !menuPinned; }, () => menuPinned );
 const redrawAll = () => btns.forEach( drawBtn );
 
 function wrap( g, text, x, y, maxW, lh ) { const words = text.split( ' ' ); let line = '';
@@ -220,10 +225,93 @@ function xrStatus() { if ( !xr.session ) return;
   const msgs = {
     start: 'Mit dem Strahl auf den Boden zeigen, wo die Mitte der Stütze stehen soll, dann Abzug.',
     richtung: 'Träger dreht mit dem Strahl. In die gewünschte Richtung zeigen, dann Abzug.',
-    fertig: `Linker Stick verschiebt, rechter Stick dreht. Drehung ${f( THREE.MathUtils.radToDeg( pl.yaw ) % 360, 0 )}° · Höhe ${pl.dy >= 0 ? '+' : ''}${f( pl.dy * 100, 0 )} cm`
+    fertig: fixiert ? 'Träger fixiert. Mit dem Strahl auf einen Stab zeigen und Abzug drücken, um die Position zu sehen.'
+      : `Linker Stick verschiebt, rechter Stick dreht. Stab antippen zeigt die Position. „Träger fixieren“ hält ihn fest. Drehung ${f( ( ( THREE.MathUtils.radToDeg( pl.yaw ) % 360 ) + 360 ) % 360, 0 )}° · Höhe ${pl.dy >= 0 ? '+' : ''}${f( pl.dy * 100, 0 )} cm`
   };
   wrap( g, ( $( 'load' ).hidden ? '' : 'Modell wird geladen … ' ) + ( infoText || msgs[ state ] || '' ), 8, c.height * 0.34, c.width - 16, c.height * 0.24 );
   info.userData.tex.needsUpdate = true; redrawAll(); }
+
+/* ---------- Positionen: Stab antippen zeigt Biegeform, Stückzahl, Ø, Länge, Lage ---------- */
+// Stahlliste und Biegeform-Skizze kommen aus modell/unterzug-441-modell.html (eine Quelle für beide Seiten).
+// Fällt das aus, bleiben die Angaben aus varianten.json ohne Skizze.
+let STL = null, POSV = {}, FARBEN = {};
+const cmF = v => Math.round( v * 100 );
+fetch( 'modell/unterzug-441-modell.html' ).then( r => r.text() ).then( t => {
+  const a = t.indexOf( 'const P={};' ), a2 = t.indexOf( '/* ---------- Anordnung', a ), b = t.indexOf( 'function shapeSVG(o){' ), b2 = t.indexOf( '/* ---------- Panel', b );
+  if ( a < 0 || a2 < 0 || b < 0 || b2 < 0 ) throw new Error( 'Stahlliste nicht gefunden' );
+  const r = new Function( 'cm', 'fmt', t.slice( a, a2 ) + '\n' + t.slice( b, b2 ) + '\nreturn { P, shapeSVG };' )( cmF, f );
+  STL = { shapeSVG: r.shapeSVG, P: {} }; for ( const o of Object.values( r.P ) ) STL.P[ String( o.lab || o.p ) ] = o;
+} ).catch( e => console.warn( 'Biegeformen nicht geladen:', e ) );
+fetch( 'models/varianten.json' ).then( r => r.json() ).then( d => { FARBEN = d.farben || {}; ( d.positionen || [] ).forEach( p => POSV[ String( p.position ) ] = p ); } ).catch( () => {} );
+
+let stahl = [];   // Stahl-Meshes mit Positionsnummer, Box im Modellsystem für eine großzügige Auswahl dünner Stäbe
+const posKey = o => { for ( let n = o; n; n = n.parent ) { const m = /^Pos_([0-9a-z]+)_/i.exec( n.name || '' ) || /^Pos\. ([0-9a-z]+) /i.exec( n.name || '' ); if ( m ) return m[ 1 ]; } return null; };
+function indexStahl() { stahl = []; if ( !model ) return; holder.updateMatrixWorld( true );
+  const inv = new THREE.Matrix4().copy( holder.matrixWorld ).invert();
+  model.traverse( o => { if ( !o.isMesh || !/^Stahl/.test( o.material?.name || '' ) ) return; const k = posKey( o ); if ( !k ) return;
+    if ( !o.geometry.boundingBox ) o.geometry.computeBoundingBox();
+    const box = o.geometry.boundingBox.clone().applyMatrix4( new THREE.Matrix4().multiplyMatrices( inv, o.matrixWorld ) );
+    stahl.push( { o, k, box, mat: o.material } ); } ); }
+const lokRay = new THREE.Ray(), invH = new THREE.Matrix4(), bx = new THREE.Box3(), hp = new THREE.Vector3();
+function pickPos( c ) { if ( !stahl.length ) return null; aim( c );
+  const hit = rc.intersectObjects( stahl.map( s => s.o ), false )[ 0 ];
+  if ( hit ) return posKey( hit.object );
+  // kein direkter Treffer: nächste Stabhülle, um 3 cm plus 1 % des Abstands vergrößert
+  invH.copy( holder.matrixWorld ).invert(); lokRay.copy( rc.ray ).applyMatrix4( invH );
+  let best = null, bd = 1e9;
+  for ( const s of stahl ) { bx.copy( s.box ); const d0 = lokRay.origin.distanceTo( bx.getCenter( hp ) );
+    bx.expandByScalar( 0.03 + 0.01 * d0 ); const p = lokRay.intersectBox( bx, hp ); if ( !p ) continue;
+    const d = p.distanceTo( lokRay.origin ); if ( d < bd ) { bd = d; best = s.k; } }
+  if ( !best ) { infoText = 'Kein Stab getroffen. Etwas genauer auf einen Stab zielen.'; xrStatus(); infoText = ''; }
+  return best; }
+const hlMat = new THREE.MeshBasicMaterial( { color: 0xffc400, toneMapped: false } );
+const dimMats = new Map();
+function dimmed( m ) { if ( !dimMats.has( m ) ) { const d = m.clone(); d.transparent = true; d.opacity = 0.25; d.depthWrite = false; dimMats.set( m, d ); } return dimMats.get( m ); }
+let posOffen = null;
+function highlight( k ) { for ( const s of stahl ) s.o.material = k === null ? s.mat : s.k === k ? hlMat : dimmed( s.mat ); }
+
+// Fenster links neben dem Menü
+const PIW = 0.46, PIH = 0.5;
+const pinfo = canvasMesh( PIW, PIH, 1100 ); pinfo.renderOrder = 10; pinfo.visible = false;
+pinfo.position.set( - ( PW / 2 + 0.03 + PIW / 2 ), 0.04, 0.04 ); pinfo.rotation.y = 0.35; menu.add( pinfo );
+const bX = canvasMesh( 0.11, 0.05, PX );
+Object.assign( bX.userData, { label: () => '✕ Schließen', action: () => closePos(), btn: true } );
+bX.position.set( PIW / 2 - 0.07, PIH / 2 - 0.04, 0.002 ); pinfo.add( bX ); btns.push( bX );
+const formName = { straight: 'gerader Stab', hook: 'Stab mit Endhaken', stirrup: 'Bügel, geschlossen, 135°-Haken', tie: 'Stützenbügel, geschlossen', diamond: 'Rautenbügel', shook: 'S-Haken', poly: 'gebogener Stab' };
+function closePos() { posOffen = null; pinfo.visible = false; highlight( null ); }
+function openPos( k ) { posOffen = k; pinfo.visible = true; highlight( k ); drawPos( k ); }
+function drawPos( k ) {
+  const o = STL?.P[ k ], v = POSV[ k ], c = pinfo.userData.c, g = c.getContext( '2d' ), W = c.width, H = c.height, s = W / 460;
+  const d = o?.d ?? v?.durchmesser, n = o?.n ?? v?.stueck, lg = o ? ( o.lgTxt || f( o.lg, 2 ) ) : ( typeof v?.laenge === 'number' ? f( v.laenge, 2 ) : v?.laenge ?? '–' );
+  const col = FARBEN[ d ] || '#ffc400';
+  g.clearRect( 0, 0, W, H ); g.fillStyle = 'rgba(18,24,27,0.92)'; rrect( g, 0, 0, W, H, 26 ); g.fill();
+  g.textAlign = 'left'; g.textBaseline = 'top';
+  g.fillStyle = col; g.font = `700 ${46 * s}px ${FONT_C}`; g.fillText( 'Pos. ' + k, 22 * s, 18 * s );
+  g.fillStyle = '#fff'; g.font = `600 ${24 * s}px ${FONT}`; g.fillText( `${n ?? '–'} Ø ${d ?? '–'}  ·  lg = ${lg} m`, 22 * s, 72 * s );
+  // Biegeform
+  const bxY = 110 * s, bxH = 190 * s; g.fillStyle = 'rgba(255,255,255,0.07)'; rrect( g, 18 * s, bxY, W - 36 * s, bxH, 14 * s ); g.fill();
+  g.fillStyle = '#8e9c9b'; g.font = `500 ${14 * s}px ${FONT}`; g.fillText( 'BIEGEFORM', 30 * s, bxY + 10 * s ); g.textAlign = 'right'; g.fillText( 'MASSE IN CM', W - 30 * s, bxY + 10 * s ); g.textAlign = 'left';
+  let y = bxY + bxH + 16 * s;
+  g.fillStyle = '#e2e8e4'; g.font = `500 ${19 * s}px ${FONT}`;
+  const lage = o?.where || v?.lage || '';
+  if ( o?.shape ) { g.fillStyle = '#8e9c9b'; g.fillText( formName[ o.shape.t ] || '', 22 * s, y ); y += 28 * s; g.fillStyle = '#e2e8e4'; }
+  if ( lage ) { y = wrapY( g, lage, 22 * s, y, W - 44 * s, 25 * s, 3 ); y += 6 * s; }
+  if ( o?.est || v?.lageGeschaetzt ) { g.fillStyle = '#ffc400'; g.font = `600 ${16 * s}px ${FONT}`; g.fillText( 'LAGE IM MODELL GESCHÄTZT', 22 * s, y ); y += 26 * s; }
+  const note = o?.note || v?.hinweis; if ( note ) { g.fillStyle = '#8e9c9b'; g.font = `500 ${16 * s}px ${FONT}`; wrapY( g, note, 22 * s, y, W - 44 * s, 21 * s, Math.max( 1, Math.floor( ( H - y - 12 * s ) / ( 21 * s ) ) ) ); }
+  pinfo.userData.tex.needsUpdate = true; drawBtn( bX );
+  if ( !o?.shape || !STL ) { g.fillStyle = '#8e9c9b'; g.font = `500 ${18 * s}px ${FONT}`; g.textAlign = 'center'; g.fillText( 'Skizze nicht verfügbar', W / 2, bxY + bxH / 2 ); pinfo.userData.tex.needsUpdate = true; return; }
+  const svg = STL.shapeSVG( o ).replace( '<svg ', `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="340" ` ).replace( /(<svg[^>]*>)/, `$1<style>
+    .shp{fill:none;stroke:${col};stroke-width:6;stroke-linecap:round;stroke-linejoin:round}.shpglow{fill:none;stroke:${col};stroke-width:16;stroke-linecap:round;stroke-linejoin:round;opacity:.22}
+    .dl{fill:none;stroke:#8e9c9b;stroke-width:1}.dt{fill:#ffffff;font:500 14px ui-monospace,Menlo,monospace}</style>` );
+  const img = new Image();
+  img.onload = () => { if ( posOffen !== k ) return; const iw = W - 60 * s, ih = iw * 170 / 320, sh = Math.min( ih, bxH - 34 * s ), sw = sh * 320 / 170;
+    g.drawImage( img, ( W - sw ) / 2, bxY + 28 * s, sw, sh ); pinfo.userData.tex.needsUpdate = true; };
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent( svg );
+}
+function wrapY( g, text, x, y, maxW, lh, maxLines ) { const words = String( text ).split( ' ' ); let line = '', n = 0;
+  for ( const w of words ) { const t = line ? line + ' ' + w : w;
+    if ( g.measureText( t ).width > maxW && line ) { if ( ++n >= maxLines ) { g.fillText( line + ' …', x, y ); return y + lh; } g.fillText( line, x, y ); y += lh; line = w; } else line = t; }
+  if ( line ) { g.fillText( line, x, y ); y += lh; } return y; }
 
 /* ---------- Controller / Hände ---------- */
 const rayGeo = new THREE.BufferGeometry().setFromPoints( [ new THREE.Vector3(), new THREE.Vector3( 0, 0, - 1 ) ] );
@@ -239,7 +327,7 @@ const ctrls = [ 0, 1 ].map( i => {
 let pointer = null;   // Controller, der zuletzt benutzt wurde (zeigt auf den Boden)
 const rc = new THREE.Raycaster(), tmpQ = new THREE.Quaternion();
 function aim( c ) { rc.ray.origin.setFromMatrixPosition( c.matrixWorld ); rc.ray.direction.set( 0, 0, - 1 ).transformDirection( c.matrixWorld ); return rc; }
-function hitButton( c ) { if ( !menu.visible ) return null; aim( c ); const h = rc.intersectObjects( btns, false )[ 0 ]; return h || null; }
+function hitButton( c ) { if ( !menu.visible ) return null; aim( c ); const h = rc.intersectObjects( btns.filter( b => b.visible && b.parent?.visible !== false ), false )[ 0 ]; return h || null; }
 const floorPlane = new THREE.Plane( UP, 0 );
 function floorPoint( c ) { aim( c ); if ( rc.ray.direction.y > - 0.02 ) return null;
   const p = rc.ray.intersectPlane( floorPlane, new THREE.Vector3() ); return p && p.distanceTo( rc.ray.origin ) < 60 ? p : null; }
@@ -254,14 +342,15 @@ mark.add( new THREE.Mesh( new THREE.RingGeometry( 0.09, 0.11, 48 ).rotateX( - Ma
 const outline = new THREE.LineLoop( new THREE.BufferGeometry(), new THREE.LineBasicMaterial( { color: 0xffc400 } ) ); mark.add( outline );
 function updateOutline() { if ( !cur ) return; const { hx, hz } = cur.vorOrt, y = 0.004;
   outline.geometry.setFromPoints( [ new THREE.Vector3( - hx, y, - hz ), new THREE.Vector3( hx, y, - hz ), new THREE.Vector3( hx, y, hz ), new THREE.Vector3( - hx, y, hz ) ] ); }
-function startPlacing() { state = 'start'; holder.visible = false; infoText = ''; updateOutline(); xrStatus(); }
+function startPlacing() { state = 'start'; fixiert = false; closePos(); holder.visible = false; infoText = ''; updateOutline(); xrStatus(); }
 function onSelect( c ) {
   pointer = c;
   const b = hitButton( c );
   if ( b ) { if ( !b.object.userData.disabled?.() ) { b.object.userData.action(); buzz( c ); xrStatus(); } return; }
-  const p = floorPoint( c ); if ( !p ) { if ( state !== 'fertig' ) { infoText = 'Strahl zeigt nicht auf den Boden. Etwas tiefer zielen.'; xrStatus(); } return; }
+  if ( state === 'fertig' ) { const k = pickPos( c ); if ( k ) { openPos( k ); buzz( c ); } return; }
+  const p = floorPoint( c ); if ( !p ) { infoText = 'Strahl zeigt nicht auf den Boden. Etwas tiefer zielen.'; xrStatus(); return; }
   if ( state === 'start' ) { pl.pos.copy( p ); pl.dy = 0; state = 'richtung'; holder.visible = true; applyPlacement(); buzz( c ); infoText = ''; xrStatus(); }
-  else if ( state === 'richtung' ) { state = 'fertig'; buzz( c ); infoText = ''; xrStatus(); }
+  else if ( state === 'richtung' ) { state = 'fertig'; yawZiel = null; buzz( c ); infoText = ''; xrStatus(); }
 }
 
 async function startAR() {
@@ -284,9 +373,9 @@ if ( navigator.xr?.isSessionSupported ) navigator.xr.isSessionSupported( 'immers
 else $( 'arinfo' ).innerHTML = '<span class="warn">Kein WebXR.</span> Seite im Meta Quest Browser auf der Brille öffnen. Hier nur Vorschau.';
 
 /* ---------- Schleife ---------- */
-let stickT = 0;
+let stickT = 0, yawZiel = null;
 const clock = new THREE.Clock(), vPos = new THREE.Vector3(), vFwd = new THREE.Vector3(), vRight = new THREE.Vector3(), tgt = new THREE.Vector3();
-let menuMoving = false;
+let menuMoving = false, menuTurn = true;
 renderer.setAnimationLoop( () => {
   const dt = Math.min( clock.getDelta(), 0.1 );
   try { if ( xr.session ) xrStep( dt ); else { scene.background = new THREE.Color( cssv( '--stage' ) ); controls.update(); }
@@ -300,11 +389,11 @@ function xrStep( dt ) {
   // Menü folgt träge: erst wenn es weit weg oder aus dem Blick ist
   tgt.copy( vPos ).addScaledVector( vFwd, 0.6 ); tgt.y = vPos.y - 0.28;
   if ( !menuPinned ) { const d = menu.position.distanceTo( tgt ), to = menu.position.clone().sub( vPos ).setY( 0 ).normalize();
-    if ( menuSnap ) { menu.position.copy( tgt ); menuSnap = false; menuMoving = false; }
+    if ( menuSnap ) { menu.position.copy( tgt ); menuSnap = false; menuMoving = false; menuTurn = true; }
     else if ( d > 1.4 || to.dot( vFwd ) < 0.45 ) menuMoving = true;
     if ( menuMoving ) { menu.position.lerp( tgt, 1 - Math.exp( - dt * 4 ) ); if ( menu.position.distanceTo( tgt ) < 0.04 ) menuMoving = false; } }
-  else if ( menuSnap ) { menu.position.copy( tgt ); menuSnap = false; }
-  menu.lookAt( vPos.x, menu.position.y + ( vPos.y - menu.position.y ) * 0.6, vPos.z );
+  else if ( menuSnap ) { menu.position.copy( tgt ); menuSnap = false; menuTurn = true; }
+  if ( menuMoving || menuTurn ) { menu.lookAt( vPos.x, menu.position.y + ( vPos.y - menu.position.y ) * 0.6, vPos.z ); menuTurn = false; }
   // Strahlen, Hover, Bodenpunkt
   let hovered = null;
   for ( const c of ctrls ) { if ( !c.userData.src ) continue;
@@ -318,12 +407,17 @@ function xrStep( dt ) {
       // Umriss so drehen, dass die Trägerachse grob vom Betrachter weg zeigt
       mark.rotation.y = Math.atan2( - vFwd.z, vFwd.x ); } }
   else if ( state === 'richtung' ) { mark.visible = false;
-    if ( fp && fp.distanceTo( pl.pos ) > 0.4 ) { pl.yaw = Math.atan2( - ( fp.z - pl.pos.z ), fp.x - pl.pos.x ); applyPlacement(); } }
+    if ( fp && fp.distanceTo( pl.pos ) > 0.8 ) { const z = Math.atan2( - ( fp.z - pl.pos.z ), fp.x - pl.pos.x );
+      if ( yawZiel === null ) { yawZiel = z; pl.yaw = z; }
+      let d = z - yawZiel; d = Math.atan2( Math.sin( d ), Math.cos( d ) );
+      if ( Math.abs( d ) > THREE.MathUtils.degToRad( 0.7 ) ) yawZiel += d;          // Zittern der Hand unter 0,7° ignorieren
+      let e = yawZiel - pl.yaw; e = Math.atan2( Math.sin( e ), Math.cos( e ) );
+      pl.yaw += e * ( 1 - Math.exp( - dt * 6 ) ); applyPlacement(); } }
   else mark.visible = false;
   // Sticks: links verschieben (relativ zur Blickrichtung), rechts drehen
-  if ( state === 'fertig' ) { let moved = false;
+  if ( state === 'fertig' && !fixiert ) { let moved = false;
     for ( const c of ctrls ) { const gp = c.userData.src?.gamepad; if ( !gp || gp.axes.length < 4 ) continue;
-      const ax = Math.abs( gp.axes[ 2 ] ) > 0.15 ? gp.axes[ 2 ] : 0, ay = Math.abs( gp.axes[ 3 ] ) > 0.15 ? gp.axes[ 3 ] : 0;
+      const ax = Math.abs( gp.axes[ 2 ] ) > 0.3 ? gp.axes[ 2 ] : 0, ay = Math.abs( gp.axes[ 3 ] ) > 0.3 ? gp.axes[ 3 ] : 0;   // größere Totzone gegen Wandern
       if ( !ax && !ay ) continue;
       const fein = gp.buttons[ 0 ]?.pressed ? 0.25 : 1;   // Abzug halten = feiner
       if ( c.userData.hand === 'left' ) { pl.pos.addScaledVector( vFwd, - ay * 0.6 * dt * fein ).addScaledVector( vRight, ax * 0.6 * dt * fein ); }
