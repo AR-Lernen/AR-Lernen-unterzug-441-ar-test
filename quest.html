@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Unterzug 441 auf der Quest</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Quest-Modus: 2D-Seite zum Vorbereiten, in AR Bedienung mit Controller oder Hand über ein 3D-Menü (kein DOM-Overlay auf der Quest) */
+:root{
+  --paper:#e8ebe4; --panel:#f5f6f2; --ink:#1c2a2e; --muted:#5a6869; --line:#c8cfc6;
+  --accent:#1f5ca3; --stage:#dde2da; --warn:#b3261e;
+  --f-display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --paper:#12181b; --panel:#182024; --ink:#e2e8e4; --muted:#8e9c9b; --line:#2b373b;
+  --accent:#78aef0; --stage:#0e1315; --warn:#ff8a80; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#12181b; --panel:#182024; --ink:#e2e8e4; --muted:#8e9c9b; --line:#2b373b;
+  --accent:#78aef0; --stage:#0e1315; --warn:#ff8a80; color-scheme:dark}
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--f-body);font-size:17px;overflow:hidden}
+.app{height:100%;display:grid;grid-template-columns:minmax(0,1fr) minmax(340px,440px)}
+@media (max-width:820px){.app{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto}}
+.stage{position:relative;min-height:0;background:var(--stage)}
+.stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+.title{position:absolute;left:20px;top:18px;pointer-events:none}
+.eyebrow{font:12px var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+h1{margin:2px 0 0;font:700 32px/1 var(--f-display)}
+h1 span{color:var(--accent)}
+.load{position:absolute;left:20px;top:76px;font:13px var(--f-mono);color:var(--muted)}
+.bar{background:var(--panel);border-left:1px solid var(--line);padding:20px;display:flex;flex-direction:column;gap:14px;overflow-y:auto}
+.fld{display:flex;flex-direction:column;gap:6px}
+.fld>span{font:600 13px var(--f-display);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.seg{display:inline-flex;flex-wrap:wrap;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--paper);align-self:flex-start}
+.seg button{font:500 16px/1 var(--f-body);color:var(--ink);background:transparent;border:0;padding:13px 16px;cursor:pointer}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--panel)}
+.go{font:600 19px var(--f-body);color:var(--panel);background:var(--accent);border:0;border-radius:8px;padding:16px 22px;cursor:pointer;align-self:flex-start}
+.go:disabled{opacity:.45;cursor:default}
+.note{margin:0;font-size:15px;line-height:1.45;color:var(--muted)}
+.note b{color:var(--ink)}
+.warn{color:var(--warn)}
+.chk{display:flex;align-items:center;gap:10px;font-size:16px;cursor:pointer;align-self:flex-start}
+.chk input{width:22px;height:22px;accent-color:var(--accent);margin:0}
+ol.steps{margin:0;padding-left:22px;font-size:15px;line-height:1.5;color:var(--muted)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="stage">
+    <canvas id="cv" aria-label="Vorschau des Bewehrungsmodells"></canvas>
+    <div class="title">
+      <div class="eyebrow">Bewehrungsmodell · Meta Quest</div>
+      <h1>Unterzug <span>Pos. 441</span></h1>
+    </div>
+    <div class="load" id="load">Modell wird geladen …</div>
+  </div>
+  <div class="bar">
+    <div class="fld"><span>Umfang</span>
+      <div class="seg" id="segU"><button data-u="ganz" aria-pressed="true">Ganzer Träger (33,6 m)</button><button data-u="aus" aria-pressed="false">Ausschnitt (±3 m)</button></div>
+    </div>
+    <div class="fld"><span>Bezugsstütze (steht am ersten Punkt)</span><div class="seg" id="segC"></div></div>
+    <label class="chk"><input type="checkbox" id="cFt"> Fertigteilträger anzeigen</label>
+    <label class="chk"><input type="checkbox" id="cBeton" checked> Beton anzeigen</label>
+    <p class="note" id="soll"></p>
+    <button class="go" id="bAR" disabled>In AR starten</button>
+    <p class="note" id="arinfo">Prüfe, ob AR verfügbar ist …</p>
+    <ol class="steps">
+      <li>Mit dem Strahl des Controllers (oder der Hand) auf den Boden zeigen, dorthin, wo die <b>Mitte der Bezugsstütze</b> stehen soll. Abzug drücken (Hand: Daumen und Zeigefinger zusammen).</li>
+      <li>Der Träger erscheint und dreht sich mit dem Strahl. In die gewünschte Richtung zeigen, nochmal Abzug.</li>
+      <li>Feinjustieren: linker Stick verschiebt, rechter Stick dreht. Oder die Knöpfe im Menü benutzen.</li>
+      <li>Das Menü folgt dir beim Gehen. Seitentaste (Griff) holt es sofort vor dich.</li>
+    </ol>
+    <p class="note">Für das Publikum: Bild der Brille über Meta Casting auf Handy, Laptop oder Beamer spiegeln.</p>
+    <p class="note"><a href="index.html">Tablet-Version (Ausrichtung am Bauwerk) →</a></p>
+  </div>
+</div>
+
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const $ = id => document.getElementById( id ), f = ( v, n = 1 ) => v.toFixed( n ).replace( '.', ',' );
+const store = { get() { try { return JSON.parse( localStorage.getItem( 'ug441quest' ) || '{}' ); } catch ( e ) { return {}; } },
+  set( o ) { try { localStorage.setItem( 'ug441quest', JSON.stringify( Object.assign( store.get(), o ) ) ); } catch ( e ) {} } };
+const UP = new THREE.Vector3( 0, 1, 0 );
+
+/* ---------- Szene ---------- */
+const cv = $( 'cv' ), renderer = new THREE.WebGLRenderer( { canvas: cv, antialias: true, alpha: true } );
+renderer.setPixelRatio( Math.min( devicePixelRatio, 2 ) ); renderer.toneMapping = THREE.NeutralToneMapping; renderer.xr.enabled = true;
+const scene = new THREE.Scene(), pm = new THREE.PMREMGenerator( renderer );
+scene.environment = pm.fromScene( new RoomEnvironment(), 0.04 ).texture;
+const cssv = n => getComputedStyle( document.documentElement ).getPropertyValue( n ).trim();
+const camera = new THREE.PerspectiveCamera( 35, 1, 0.02, 300 ), controls = new OrbitControls( camera, cv );
+controls.enableDamping = true;
+const holder = new THREE.Group(); scene.add( holder );   // trägt das Modell; Ursprung = Mitte Bezugsstütze am Boden, x = Trägerachse
+function resize() { const s = cv.parentElement; const w = s.clientWidth, h = s.clientHeight;
+  if ( renderer.xr.isPresenting ) return; renderer.setSize( w, h, false ); camera.aspect = w / Math.max( h, 1 ); camera.updateProjectionMatrix(); }
+new ResizeObserver( resize ).observe( cv.parentElement );
+
+/* ---------- Modelle (gleiche Dateien wie die Tablet-Version) ---------- */
+let V = [], FULL = null, cur = null, model = null, modelFile = '',
+  umfang = store.get().umfang || 'ganz', beton = store.get().beton ?? true, fertig = !!store.get().fertig;
+const footMat = new THREE.MeshBasicMaterial( { color: 0xffc400 } );
+const axFull = v => FULL.achsen.find( a => a.name === '18' ).x + v.vorOrt.xc;   // wie index.html: Achse 18 = x 0, Stützenmitte aus vorOrt.xc
+function footprints() { const g = new THREE.Group(), t = 0.003, w = 0.02;
+  for ( const v of V ) { const cx = axFull( v ), { hx, hz } = v.vorOrt;
+    for ( const [ x0, x1, z0, z1 ] of [ [ cx - hx - w, cx + hx + w, - hz - w, - hz ], [ cx - hx - w, cx + hx + w, hz, hz + w ], [ cx - hx - w, cx - hx, - hz, hz ], [ cx + hx, cx + hx + w, - hz, hz ] ] ) {
+      const m = new THREE.Mesh( new THREE.BoxGeometry( x1 - x0, t, z1 - z0 ), footMat ); m.position.set( ( x0 + x1 ) / 2, t / 2, ( z0 + z1 ) / 2 ); g.add( m ); } }
+  return g; }
+const loader = new GLTFLoader();
+function setBeton( on ) { beton = on; $( 'cBeton' ).checked = on; store.set( { beton } ); model?.traverse( o => { if ( o.isMesh && o.material?.name === 'Beton' ) o.visible = on; } ); }
+function setFertig( on ) { fertig = on; $( 'cFt' ).checked = on; store.set( { fertig } ); model?.traverse( o => { if ( o.isMesh && o.material?.name === 'Fertigteil' ) o.visible = on; } ); }
+$( 'cFt' ).addEventListener( 'change', e => setFertig( e.target.checked ) );
+$( 'cBeton' ).addEventListener( 'change', e => setBeton( e.target.checked ) );
+const press = ( seg, test ) => $( seg ).querySelectorAll( 'button' ).forEach( b => b.setAttribute( 'aria-pressed', test( b ) ) );
+function select( v ) { cur = v; store.set( { stuetze: v.vorOrt.stuetze } ); press( 'segC', b => b.dataset.id === v.id ); updateSoll(); loadModel();
+  if ( xr.session ) { updateOutline(); xrStatus(); } }
+function setUmfang( u ) { umfang = u; store.set( { umfang } ); press( 'segU', b => b.dataset.u === u ); updateSoll(); loadModel(); }
+function loadModel() {
+  const v = umfang === 'ganz' ? FULL : cur, file = ( v.glbFt || v.glb ) + '?v=' + ( v.glbFtV || v.glbV );   // ?v= gegen veraltete Zwischenspeicher
+  if ( file === modelFile && model ) { placeModel(); return; }
+  modelFile = file; $( 'load' ).hidden = false; $( 'load' ).textContent = 'Modell wird geladen …'; xrStatus();
+  loader.load( 'models/' + file, g => { if ( modelFile !== file ) return; if ( model ) holder.remove( model );
+    model = g.scene; model.traverse( o => { if ( o.isMesh && o.material?.transparent ) o.material.depthWrite = false; } );
+    if ( umfang === 'ganz' ) model.add( footprints() );
+    holder.add( model ); setBeton( beton ); setFertig( fertig ); placeModel(); $( 'load' ).hidden = true; xrStatus(); },
+    undefined, () => { $( 'load' ).textContent = 'Modell konnte nicht geladen werden.'; } );
+}
+// Ganzer Träger: Datei für alle Stützen, so verschoben, dass die Bezugsstütze im Ursprung steht. Ausschnitt: Ursprung schon am Stützenfuß.
+function placeModel() { if ( !model ) return;
+  const ganz = umfang === 'ganz'; model.position.x = ganz ? - axFull( cur ) : 0;
+  if ( renderer.xr.isPresenting ) return;
+  controls.target.set( 0, ganz ? 1.6 : 2.2, 0 );
+  const k = Math.max( 1, 1.3 / camera.aspect );
+  camera.position.set( ( ganz ? - 14 : - 5 ) * k, ganz ? 9 * k : 3.2, ( ganz ? 22 : 6 ) * k );
+}
+function updateSoll() { if ( !cur ) return; const { hx, hz } = cur.vorOrt;
+  $( 'soll' ).innerHTML = `Stütze <b>${cur.vorOrt.stuetze}</b>, ${f( 2 * hx * 100, 0 )} × ${f( 2 * hz * 100, 0 )} cm, steht am ersten Punkt. Unterkante Unterzug 2,20 m über Boden.` +
+    ( umfang === 'ganz' ? ' Der ganze Träger braucht freie Fläche entlang der Achse, je nach Stütze bis zu 25 m in eine Richtung.' : '' ); }
+$( 'segU' ).addEventListener( 'click', e => { const b = e.target.closest( 'button' ); if ( b && cur ) setUmfang( b.dataset.u ); } );
+fetch( 'models/varianten.json' ).then( r => r.json() ).then( d => {
+  V = d.varianten.filter( v => v.vorOrt ).sort( ( a, b ) => a.vorOrt.xc - b.vorOrt.xc ); FULL = d.varianten.find( v => v.id === 'unterzug-441' );
+  $( 'segC' ).innerHTML = V.map( v => `<button data-id="${v.id}" aria-pressed="false">${v.vorOrt.stuetze}</button>` ).join( '' );
+  $( 'segC' ).addEventListener( 'click', e => { const b = e.target.closest( 'button' ); if ( b ) select( V.find( v => v.id === b.dataset.id ) ); } );
+  const h = location.hash.slice( 1 ).toLowerCase().split( '-' ), key = v => v.vorOrt.stuetze.replace( '/', '' ).toLowerCase();
+  if ( h.includes( 'aus' ) ) umfang = 'aus'; else if ( h.includes( 'ganz' ) ) umfang = 'ganz';
+  press( 'segU', b => b.dataset.u === umfang );
+  select( V.find( v => h.includes( key( v ) ) ) || V.find( v => v.vorOrt.stuetze === store.get().stuetze ) || V.find( v => v.vorOrt.stuetze === '15' ) || V[ 0 ] );
+} ).catch( () => { $( 'load' ).textContent = 'Variantenliste konnte nicht geladen werden.'; } );
+
+/* ---------- Zustand in AR ---------- */
+const xr = { session: null };
+let state = 'start', menuPinned = false, menuSnap = false;
+const pl = { pos: new THREE.Vector3(), yaw: 0, dy: 0 };   // Lage der Bezugsstütze am Boden, Drehung der Trägerachse, Höhenkorrektur
+
+/* ---------- 3D-Menü (Canvas-Texturen) ---------- */
+const FONT = '"Barlow", system-ui, sans-serif', FONT_C = '"Barlow Condensed", "Arial Narrow", system-ui, sans-serif';
+function rrect( g, x, y, w, h, r ) { g.beginPath(); g.moveTo( x + r, y ); g.arcTo( x + w, y, x + w, y + h, r ); g.arcTo( x + w, y + h, x, y + h, r ); g.arcTo( x, y + h, x, y, r ); g.arcTo( x, y, x + w, y, r ); g.closePath(); }
+function canvasMesh( w, h, px ) {   // w, h in Metern, px Pixel pro Meter
+  const c = document.createElement( 'canvas' ); c.width = Math.round( w * px ); c.height = Math.round( h * px );
+  const tex = new THREE.CanvasTexture( c ); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  const m = new THREE.Mesh( new THREE.PlaneGeometry( w, h ), new THREE.MeshBasicMaterial( { map: tex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false } ) );
+  m.renderOrder = 10; m.userData.c = c; m.userData.tex = tex; return m; }
+const menu = new THREE.Group(); menu.visible = false; scene.add( menu );
+const PW = 0.44, BW = 0.136, BH = 0.052, GAP = 0.016, PX = 1400;
+const bg = canvasMesh( PW + 0.03, 0.43, 600 ); bg.renderOrder = 9; menu.add( bg );
+{ const g = bg.userData.c.getContext( '2d' ); g.fillStyle = 'rgba(18,24,27,0.86)'; rrect( g, 0, 0, bg.userData.c.width, bg.userData.c.height, 28 ); g.fill(); bg.userData.tex.needsUpdate = true; }
+const info = canvasMesh( PW, 0.105, PX ); info.position.set( 0, 0.15, 0.001 ); menu.add( info );
+const btns = [];
+function drawBtn( b ) { const c = b.userData.c, g = c.getContext( '2d' ); g.clearRect( 0, 0, c.width, c.height );
+  const on = b.userData.on?.(), dis = b.userData.disabled?.();
+  g.fillStyle = dis ? 'rgba(255,255,255,0.12)' : on ? '#ffc400' : b.userData.hover ? '#ffffff' : 'rgba(255,255,255,0.82)';
+  rrect( g, 3, 3, c.width - 6, c.height - 6, 18 ); g.fill();
+  if ( b.userData.hover && !dis ) { g.lineWidth = 6; g.strokeStyle = '#78aef0'; rrect( g, 4, 4, c.width - 8, c.height - 8, 17 ); g.stroke(); }
+  g.fillStyle = dis ? 'rgba(255,255,255,0.4)' : '#111'; g.font = `600 ${Math.round( c.height * 0.42 )}px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText( b.userData.label(), c.width / 2, c.height / 2 + 2 ); b.userData.tex.needsUpdate = true; }
+function addBtn( col, row, label, action, on, disabled ) {
+  const b = canvasMesh( BW, BH, PX ); b.position.set( ( col - 1 ) * ( BW + GAP ), 0.06 - row * ( BH + GAP ), 0.002 );
+  Object.assign( b.userData, { label: typeof label === 'function' ? label : () => label, action, on, disabled, btn: true } );
+  menu.add( b ); btns.push( b ); drawBtn( b ); return b; }
+const placed = () => state === 'fertig';
+addBtn( 0, 0, 'Beton', () => setBeton( !beton ), () => beton );
+addBtn( 1, 0, 'Fertigteile', () => setFertig( !fertig ), () => fertig );
+addBtn( 2, 0, () => umfang === 'ganz' ? 'Ganzer Träger' : 'Ausschnitt', () => setUmfang( umfang === 'ganz' ? 'aus' : 'ganz' ) );
+addBtn( 0, 1, '↺ 1°', () => turn( 1 ), null, () => !placed() );
+addBtn( 1, 1, '↻ 1°', () => turn( - 1 ), null, () => !placed() );
+addBtn( 2, 1, 'Umdrehen 180°', () => turn( 180 ), null, () => !placed() );
+addBtn( 0, 2, 'Höhe −1 cm', () => { pl.dy -= 0.01; applyPlacement(); xrStatus(); }, null, () => !placed() );
+addBtn( 1, 2, 'Höhe +1 cm', () => { pl.dy += 0.01; applyPlacement(); xrStatus(); }, null, () => !placed() );
+addBtn( 2, 2, () => {
+  if ( state !== 'start' ) return 'Neu platzieren';
+  const i = V.indexOf( cur ); return 'Stütze ' + ( V[ ( i + 1 ) % V.length ]?.vorOrt.stuetze ?? '' ) + ' →'; }, () => {
+  if ( state !== 'start' ) { startPlacing(); return; }
+  select( V[ ( V.indexOf( cur ) + 1 ) % V.length ] ); } );
+addBtn( 2, 3, 'Beenden', () => xr.session?.end() );
+addBtn( 0, 3, 'Menü fixieren', () => { menuPinned = !menuPinned; }, () => menuPinned );
+const redrawAll = () => btns.forEach( drawBtn );
+
+function wrap( g, text, x, y, maxW, lh ) { const words = text.split( ' ' ); let line = '';
+  for ( const w of words ) { const t = line ? line + ' ' + w : w; if ( g.measureText( t ).width > maxW && line ) { g.fillText( line, x, y ); y += lh; line = w; } else line = t; }
+  if ( line ) g.fillText( line, x, y ); }
+let infoText = '';
+function xrStatus() { if ( !xr.session ) return;
+  const c = info.userData.c, g = c.getContext( '2d' ); g.clearRect( 0, 0, c.width, c.height );
+  g.fillStyle = '#78aef0'; g.font = `700 ${Math.round( c.height * 0.24 )}px ${FONT_C}`; g.textBaseline = 'top'; g.textAlign = 'left';
+  g.fillText( `UNTERZUG POS. 441 · STÜTZE ${cur?.vorOrt.stuetze ?? ''} · 1:1`, 8, 4 );
+  g.fillStyle = '#fff'; g.font = `500 ${Math.round( c.height * 0.2 )}px ${FONT}`;
+  const msgs = {
+    start: 'Mit dem Strahl auf den Boden zeigen, wo die Mitte der Stütze stehen soll, dann Abzug.',
+    richtung: 'Träger dreht mit dem Strahl. In die gewünschte Richtung zeigen, dann Abzug.',
+    fertig: `Linker Stick verschiebt, rechter Stick dreht. Drehung ${f( THREE.MathUtils.radToDeg( pl.yaw ) % 360, 0 )}° · Höhe ${pl.dy >= 0 ? '+' : ''}${f( pl.dy * 100, 0 )} cm`
+  };
+  wrap( g, ( $( 'load' ).hidden ? '' : 'Modell wird geladen … ' ) + ( infoText || msgs[ state ] || '' ), 8, c.height * 0.34, c.width - 16, c.height * 0.24 );
+  info.userData.tex.needsUpdate = true; redrawAll(); }
+
+/* ---------- Controller / Hände ---------- */
+const rayGeo = new THREE.BufferGeometry().setFromPoints( [ new THREE.Vector3(), new THREE.Vector3( 0, 0, - 1 ) ] );
+const ctrls = [ 0, 1 ].map( i => {
+  const c = renderer.xr.getController( i ); scene.add( c );
+  const line = new THREE.Line( rayGeo, new THREE.LineBasicMaterial( { color: 0xffffff, transparent: true, opacity: 0.8, depthTest: false } ) );
+  line.renderOrder = 11; line.visible = false; c.add( line ); c.userData.line = line;
+  c.addEventListener( 'connected', e => { c.userData.src = e.data; c.userData.hand = e.data.handedness; line.visible = true; } );
+  c.addEventListener( 'disconnected', () => { c.userData.src = null; line.visible = false; } );
+  c.addEventListener( 'selectstart', () => onSelect( c ) );
+  c.addEventListener( 'squeezestart', () => { menuSnap = true; } );
+  return c; } );
+let pointer = null;   // Controller, der zuletzt benutzt wurde (zeigt auf den Boden)
+const rc = new THREE.Raycaster(), tmpQ = new THREE.Quaternion();
+function aim( c ) { rc.ray.origin.setFromMatrixPosition( c.matrixWorld ); rc.ray.direction.set( 0, 0, - 1 ).transformDirection( c.matrixWorld ); return rc; }
+function hitButton( c ) { if ( !menu.visible ) return null; aim( c ); const h = rc.intersectObjects( btns, false )[ 0 ]; return h || null; }
+const floorPlane = new THREE.Plane( UP, 0 );
+function floorPoint( c ) { aim( c ); if ( rc.ray.direction.y > - 0.02 ) return null;
+  const p = rc.ray.intersectPlane( floorPlane, new THREE.Vector3() ); return p && p.distanceTo( rc.ray.origin ) < 60 ? p : null; }
+function buzz( c ) { try { c.userData.src?.gamepad?.hapticActuators?.[ 0 ]?.pulse( 0.35, 30 ); } catch ( e ) {} }
+
+/* ---------- Platzieren ---------- */
+function applyPlacement() { holder.position.set( pl.pos.x, pl.dy, pl.pos.z ); holder.quaternion.setFromAxisAngle( UP, pl.yaw ); }
+function turn( deg ) { pl.yaw += THREE.MathUtils.degToRad( deg ); applyPlacement(); xrStatus(); }
+// Bodenmarke: Ring plus Umriss der Bezugsstütze
+const mark = new THREE.Group(); mark.visible = false; scene.add( mark );
+mark.add( new THREE.Mesh( new THREE.RingGeometry( 0.09, 0.11, 48 ).rotateX( - Math.PI / 2 ), new THREE.MeshBasicMaterial( { color: 0xffffff, transparent: true, opacity: 0.9 } ) ) );
+const outline = new THREE.LineLoop( new THREE.BufferGeometry(), new THREE.LineBasicMaterial( { color: 0xffc400 } ) ); mark.add( outline );
+function updateOutline() { if ( !cur ) return; const { hx, hz } = cur.vorOrt, y = 0.004;
+  outline.geometry.setFromPoints( [ new THREE.Vector3( - hx, y, - hz ), new THREE.Vector3( hx, y, - hz ), new THREE.Vector3( hx, y, hz ), new THREE.Vector3( - hx, y, hz ) ] ); }
+function startPlacing() { state = 'start'; holder.visible = false; infoText = ''; updateOutline(); xrStatus(); }
+function onSelect( c ) {
+  pointer = c;
+  const b = hitButton( c );
+  if ( b ) { if ( !b.object.userData.disabled?.() ) { b.object.userData.action(); buzz( c ); xrStatus(); } return; }
+  const p = floorPoint( c ); if ( !p ) { if ( state !== 'fertig' ) { infoText = 'Strahl zeigt nicht auf den Boden. Etwas tiefer zielen.'; xrStatus(); } return; }
+  if ( state === 'start' ) { pl.pos.copy( p ); pl.dy = 0; state = 'richtung'; holder.visible = true; applyPlacement(); buzz( c ); infoText = ''; xrStatus(); }
+  else if ( state === 'richtung' ) { state = 'fertig'; buzz( c ); infoText = ''; xrStatus(); }
+}
+
+async function startAR() {
+  let session;
+  try { session = await navigator.xr.requestSession( 'immersive-ar', { requiredFeatures: [ 'local-floor' ], optionalFeatures: [ 'hand-tracking' ] } ); }
+  catch ( e ) { $( 'arinfo' ).textContent = 'AR konnte nicht gestartet werden: ' + e.message; return; }
+  try { scene.background = null; renderer.xr.setReferenceSpaceType( 'local-floor' ); await renderer.xr.setSession( session ); }
+  catch ( e ) { $( 'arinfo' ).textContent = 'AR-Start fehlgeschlagen: ' + e.message; session.end().catch( () => {} ); return; }
+  xr.session = session; await document.fonts?.ready; menu.visible = true; menuSnap = true; placeModel(); startPlacing();
+  session.addEventListener( 'end', () => { xr.session = null; menu.visible = false; mark.visible = false; holder.visible = true;
+    holder.position.set( 0, 0, 0 ); holder.quaternion.identity(); ctrls.forEach( c => c.userData.line.visible = false ); placeModel(); resize(); } );
+}
+$( 'bAR' ).addEventListener( 'click', startAR );
+const isQuest = /OculusBrowser|Quest/i.test( navigator.userAgent );
+if ( navigator.xr?.isSessionSupported ) navigator.xr.isSessionSupported( 'immersive-ar' ).then( ok => {
+  $( 'bAR' ).disabled = !ok;
+  $( 'arinfo' ).innerHTML = ok ? ( isQuest ? 'AR mit Passthrough verfügbar.' : 'AR verfügbar. Diese Seite ist für die Meta Quest ausgelegt, auf dem Tablet besser die <a href="index.html">Tablet-Version</a> nehmen.' )
+    : '<span class="warn">AR ist hier nicht verfügbar.</span> Seite im Meta Quest Browser auf der Brille öffnen. Hier nur Vorschau.';
+} ).catch( () => { $( 'arinfo' ).textContent = 'AR ist hier nicht verfügbar. Nur Vorschau.'; } );
+else $( 'arinfo' ).innerHTML = '<span class="warn">Kein WebXR.</span> Seite im Meta Quest Browser auf der Brille öffnen. Hier nur Vorschau.';
+
+/* ---------- Schleife ---------- */
+let stickT = 0;
+const clock = new THREE.Clock(), vPos = new THREE.Vector3(), vFwd = new THREE.Vector3(), vRight = new THREE.Vector3(), tgt = new THREE.Vector3();
+let menuMoving = false;
+renderer.setAnimationLoop( () => {
+  const dt = Math.min( clock.getDelta(), 0.1 );
+  try { if ( xr.session ) xrStep( dt ); else { scene.background = new THREE.Color( cssv( '--stage' ) ); controls.update(); }
+    renderer.render( scene, camera ); }
+  catch ( e ) { console.error( e ); if ( xr.session ) { infoText = 'Fehler: ' + e.message; xrStatus(); } }
+} );
+function xrStep( dt ) {
+  const xc = renderer.xr.getCamera(); xc.getWorldPosition( vPos );
+  vFwd.set( 0, 0, - 1 ).applyQuaternion( xc.getWorldQuaternion( tmpQ ) ); vFwd.y = 0;
+  if ( vFwd.lengthSq() < 1e-4 ) vFwd.set( 0, 0, - 1 ); vFwd.normalize(); vRight.crossVectors( vFwd, UP );
+  // Menü folgt träge: erst wenn es weit weg oder aus dem Blick ist
+  tgt.copy( vPos ).addScaledVector( vFwd, 0.6 ); tgt.y = vPos.y - 0.28;
+  if ( !menuPinned ) { const d = menu.position.distanceTo( tgt ), to = menu.position.clone().sub( vPos ).setY( 0 ).normalize();
+    if ( menuSnap ) { menu.position.copy( tgt ); menuSnap = false; menuMoving = false; }
+    else if ( d > 1.4 || to.dot( vFwd ) < 0.45 ) menuMoving = true;
+    if ( menuMoving ) { menu.position.lerp( tgt, 1 - Math.exp( - dt * 4 ) ); if ( menu.position.distanceTo( tgt ) < 0.04 ) menuMoving = false; } }
+  else if ( menuSnap ) { menu.position.copy( tgt ); menuSnap = false; }
+  menu.lookAt( vPos.x, menu.position.y + ( vPos.y - menu.position.y ) * 0.6, vPos.z );
+  // Strahlen, Hover, Bodenpunkt
+  let hovered = null;
+  for ( const c of ctrls ) { if ( !c.userData.src ) continue;
+    const b = hitButton( c ); let len = 3;
+    if ( b ) { hovered = b.object; len = b.distance; } else { const p = floorPoint( c ); if ( p ) len = p.distanceTo( rc.ray.origin ); }
+    c.userData.line.scale.z = len; c.userData.line.visible = true;
+    if ( !pointer || ( !pointer.userData.src && c.userData.src ) ) pointer = c; }
+  for ( const b of btns ) { const h = b === hovered; if ( b.userData.hover !== h ) { b.userData.hover = h; drawBtn( b ); } }
+  const fp = pointer && state !== 'fertig' && !( pointer && hitButton( pointer ) ) ? floorPoint( pointer ) : null;
+  if ( state === 'start' ) { mark.visible = !!fp; if ( fp ) { mark.position.copy( fp );
+      // Umriss so drehen, dass die Trägerachse grob vom Betrachter weg zeigt
+      mark.rotation.y = Math.atan2( - vFwd.z, vFwd.x ); } }
+  else if ( state === 'richtung' ) { mark.visible = false;
+    if ( fp && fp.distanceTo( pl.pos ) > 0.4 ) { pl.yaw = Math.atan2( - ( fp.z - pl.pos.z ), fp.x - pl.pos.x ); applyPlacement(); } }
+  else mark.visible = false;
+  // Sticks: links verschieben (relativ zur Blickrichtung), rechts drehen
+  if ( state === 'fertig' ) { let moved = false;
+    for ( const c of ctrls ) { const gp = c.userData.src?.gamepad; if ( !gp || gp.axes.length < 4 ) continue;
+      const ax = Math.abs( gp.axes[ 2 ] ) > 0.15 ? gp.axes[ 2 ] : 0, ay = Math.abs( gp.axes[ 3 ] ) > 0.15 ? gp.axes[ 3 ] : 0;
+      if ( !ax && !ay ) continue;
+      const fein = gp.buttons[ 0 ]?.pressed ? 0.25 : 1;   // Abzug halten = feiner
+      if ( c.userData.hand === 'left' ) { pl.pos.addScaledVector( vFwd, - ay * 0.6 * dt * fein ).addScaledVector( vRight, ax * 0.6 * dt * fein ); }
+      else { pl.yaw -= ax * THREE.MathUtils.degToRad( 20 ) * dt * fein; }
+      moved = true; }
+    if ( moved ) { applyPlacement(); stickT = ( stickT || 0 ) + dt; if ( stickT > 0.25 ) { stickT = 0; xrStatus(); } } }
+}
+window.questModell = () => model; window.questPlatz = () => pl;   // für Tests
+</script>
+</body>
+</html>
